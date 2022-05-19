@@ -62,11 +62,23 @@ const TokenInput: FC<TokenInputProps> = ({
     text = '0';
   }
   return (
-    <Box px={2} {...containerProps}>
+    <Box px={2} {...containerProps} position="relative">
+      <Pressable
+        position="absolute"
+        left={0}
+        top={0}
+        width="50%"
+        bottom={0}
+        zIndex={0}
+        cursor="default"
+        onPress={() => console.log('get clicked')}
+      />
       <Box display="flex" flexDirection="row" justifyContent="space-between">
-        <Typography.Body2 color="text-subdued" p={2}>
-          {label}
-        </Typography.Body2>
+        <Box pointerEvents="none">
+          <Typography.Body2 color="text-subdued" p={2}>
+            {label}
+          </Typography.Body2>
+        </Box>
         <Pressable
           onPress={() => {
             if (isDisabled || !showMax) {

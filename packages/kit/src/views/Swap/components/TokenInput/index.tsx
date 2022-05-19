@@ -1,4 +1,4 @@
-import React, { ComponentProps, FC, useCallback } from 'react';
+import React, { ComponentProps, FC, useCallback, useRef } from 'react';
 
 import { useIntl } from 'react-intl';
 
@@ -41,6 +41,7 @@ const TokenInput: FC<TokenInputProps> = ({
   isDisabled,
 }) => {
   const intl = useIntl();
+  const ref = useRef<any>();
   const { balances } = useManageTokens();
   const { onUserInput } = useSwapActionHandlers();
   const value = token ? balances[token?.tokenIdOnNetwork || 'main'] : '0';
@@ -61,20 +62,24 @@ const TokenInput: FC<TokenInputProps> = ({
   if (!value || Number(value) === 0 || Number.isNaN(+value)) {
     text = '0';
   }
+  const onFocus = useCallback(() => {
+    // eslint-disable-next-line
+    ref.current?.focus?.();
+  }, []);
   return (
     <Box px={2} {...containerProps} position="relative">
       <Pressable
         position="absolute"
         left={0}
         top={0}
-        width="50%"
+        width="70%"
         bottom={0}
         zIndex={0}
         cursor="default"
-        onPress={() => console.log('get clicked')}
+        onPress={onFocus}
       />
       <Box display="flex" flexDirection="row" justifyContent="space-between">
-        <Box pointerEvents="none">
+        <Box pointerEvents="none" bg="blue.100">
           <Typography.Body2 color="text-subdued" p={2}>
             {label}
           </Typography.Body2>
@@ -133,6 +138,7 @@ const TokenInput: FC<TokenInputProps> = ({
             pb="0"
             pl={2}
             h={10}
+            ref={ref}
             isDisabled={isDisabled}
           />
         </Box>

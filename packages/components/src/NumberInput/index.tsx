@@ -1,8 +1,8 @@
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access, react/prop-types */
 import React, {
   ComponentProps,
-  FC,
   useCallback,
+  useImperativeHandle,
   useMemo,
   useRef,
   useState,
@@ -60,134 +60,145 @@ function fixNumberValue(t: string, decimal?: number) {
   return result;
 }
 
-export const NumberInput: FC<NumberInputProps> = ({
-  decimal,
-  onChange,
-  onFocus,
-  enableMaxButton,
-  isMax,
-  onMaxChange,
-  maxText,
-  maxTextIsNumber,
-  maxModeCanEdit,
-  onBlur,
-  onChangeText,
-  tokenSymbol,
-  value,
-  size,
-  ...props
-}) => {
-  const intl = useIntl();
-  const inputRef = useRef(null);
-  // eslint-disable-next-line no-param-reassign
-  maxText = maxText || intl.formatMessage({ id: 'form__amount_max_amount' });
-  const [v, setV] = useState('');
+const NumberInput = React.forwardRef<typeof Input, NumberInputProps>(
+  (
+    {
+      decimal,
+      onChange,
+      onFocus,
+      enableMaxButton,
+      isMax,
+      onMaxChange,
+      maxText,
+      maxTextIsNumber,
+      maxModeCanEdit,
+      onBlur,
+      onChangeText,
+      tokenSymbol,
+      value,
+      size,
+      ...props
+    },
+    ref,
+  ) => {
+    const intl = useIntl();
+    const inputRef = useRef(null);
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    useImperativeHandle(ref, () => inputRef.current!);
+    // eslint-disable-next-line no-param-reassign
+    maxText = maxText || intl.formatMessage({ id: 'form__amount_max_amount' });
+    const [v, setV] = useState('');
 
-  const maxButton = useMemo(
-    () =>
-      enableMaxButton ? (
-        <RadioButton
-          size={size === 'xl' ? 'lg' : 'sm'}
-          value="true"
-          isChecked={isMax}
-          onCheckedChange={(checked) => {
-            onMaxChange?.(checked);
-            if (!checked && isMax) {
-              // @ts-expect-error
-              // eslint-disable-next-line @typescript-eslint/no-unsafe-call
-              inputRef?.current?.focus();
+    const maxButton = useMemo(
+      () =>
+        enableMaxButton ? (
+          <RadioButton
+            size={size === 'xl' ? 'lg' : 'sm'}
+            value="true"
+            isChecked={isMax}
+            onCheckedChange={(checked) => {
+              onMaxChange?.(checked);
+              if (!checked && isMax) {
+                // @ts-expect-error
+                // eslint-disable-next-line @typescript-eslint/no-unsafe-call
+                inputRef?.current?.focus();
+              }
+            }}
+            title={intl.formatMessage({ id: 'action__max' })}
+          />
+        ) : undefined,
+      [enableMaxButton, intl, isMax, onMaxChange, size],
+    );
+
+    const handleChange = useCallback(
+      (t: string) => {
+        const result = fixNumberValue(t, decimal);
+        setV(result);
+        if (onChange) {
+          onChange(result);
+        }
+        if (onChangeText) {
+          onChangeText(result);
+        }
+      },
+      [decimal, onChange, onChangeText],
+    );
+
+    const handleBlur = useCallback(
+      (e: any) => {
+        const text = v;
+
+        if (text) {
+          if (text.startsWith('.') || text.endsWith('.')) {
+            const b = new BigNumber(text);
+
+            if (onChange) {
+              onChange(b.toString());
             }
-          }}
-          title={intl.formatMessage({ id: 'action__max' })}
-        />
-      ) : undefined,
-    [enableMaxButton, intl, isMax, onMaxChange, size],
-  );
-
-  const handleChange = useCallback(
-    (t: string) => {
-      const result = fixNumberValue(t, decimal);
-      setV(result);
-      if (onChange) {
-        onChange(result);
-      }
-      if (onChangeText) {
-        onChangeText(result);
-      }
-    },
-    [decimal, onChange, onChangeText],
-  );
-
-  const handleBlur = useCallback(
-    (e: any) => {
-      const text = v;
-
-      if (text) {
-        if (text.startsWith('.') || text.endsWith('.')) {
-          const b = new BigNumber(text);
-
-          if (onChange) {
-            onChange(b.toString());
-          }
-          setV(b.toString());
-        }
-      }
-
-      if (onBlur) {
-        onBlur(e);
-      }
-    },
-    [onBlur, onChange, v],
-  );
-
-  const valueDisplay = useMemo(() => {
-    let val = value;
-    if (enableMaxButton && isMax) {
-      val = maxText;
-      if (maxTextIsNumber) {
-        try {
-          val = fixNumberValue(val as string, decimal);
-        } catch (error) {
-          console.error(error);
-        }
-      }
-    }
-    return val;
-  }, [decimal, enableMaxButton, isMax, maxText, maxTextIsNumber, value]);
-
-  // TODO render native-base NumberInput in ios/android
-  //    https://github.com/GeekyAnts/NativeBase/issues/3894
-  return (
-    <Input
-      ref={inputRef}
-      keyboardType="numeric"
-      rightCustomElement={
-        <>
-          <Typography.Body1 color="text-subdued">
-            {tokenSymbol}
-          </Typography.Body1>
-          {enableMaxButton ? (
-            <Divider orientation="vertical" h={5} ml={5} mr={1} />
-          ) : null}
-          {maxButton}
-          <Box w={1} />
-        </>
-      }
-      isReadOnly={!maxModeCanEdit && enableMaxButton && isMax}
-      onFocus={(e) => {
-        onFocus?.(e);
-        if (isMax && maxModeCanEdit) {
-          onMaxChange?.(!isMax);
-          if (valueDisplay) {
-            handleChange(valueDisplay);
+            setV(b.toString());
           }
         }
-      }}
-      size={size}
-      {...props}
-      value={valueDisplay}
-      onChangeText={handleChange}
-      onBlur={handleBlur}
-    />
-  );
-};
+
+        if (onBlur) {
+          onBlur(e);
+        }
+      },
+      [onBlur, onChange, v],
+    );
+
+    const valueDisplay = useMemo(() => {
+      let val = value;
+      if (enableMaxButton && isMax) {
+        val = maxText;
+        if (maxTextIsNumber) {
+          try {
+            val = fixNumberValue(val as string, decimal);
+          } catch (error) {
+            console.error(error);
+          }
+        }
+      }
+      return val;
+    }, [decimal, enableMaxButton, isMax, maxText, maxTextIsNumber, value]);
+
+    // TODO render native-base NumberInput in ios/android
+    //    https://github.com/GeekyAnts/NativeBase/issues/3894
+    return (
+      <Input
+        ref={inputRef}
+        keyboardType="numeric"
+        rightCustomElement={
+          <>
+            <Typography.Body1 color="text-subdued">
+              {tokenSymbol}
+            </Typography.Body1>
+            {enableMaxButton ? (
+              <Divider orientation="vertical" h={5} ml={5} mr={1} />
+            ) : null}
+            {maxButton}
+            <Box w={1} />
+          </>
+        }
+        isReadOnly={!maxModeCanEdit && enableMaxButton && isMax}
+        onFocus={(e) => {
+          onFocus?.(e);
+          if (isMax && maxModeCanEdit) {
+            onMaxChange?.(!isMax);
+            if (valueDisplay) {
+              handleChange(valueDisplay);
+            }
+          }
+        }}
+        size={size}
+        {...props}
+        value={valueDisplay}
+        onChangeText={handleChange}
+        onBlur={handleBlur}
+      />
+    );
+  },
+);
+
+NumberInput.displayName = 'NumberInput';
+
+export { NumberInput };

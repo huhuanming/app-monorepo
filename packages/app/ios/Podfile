@@ -18,7 +18,7 @@ target 'OneKeyWallet' do
 
   use_react_native!(
     :path => config[:reactNativePath],
-    :hermes_enabled => podfile_properties['expo.jsEngine'] == 'hermes'
+    :hermes_enabled => true
   )
 
   # Uncomment to opt-in to using Flipper

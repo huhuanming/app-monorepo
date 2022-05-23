@@ -59,5 +59,18 @@
     "balance2FeeDecimals": 9,
     "enabled": true,
     "presetRpcURLs": ["https://api.devnet.solana.com"]
+  },
+  {
+    "id": "cfx--dev",
+    "name": "cfx--dev",
+    "impl": "cfx",
+    "symbol": "CFX",
+    "logoURI": "https://onekey-asset.com/assets/cfx/cfx.png",
+    "feeSymbol": "Drip",
+    "decimals": 18,
+    "feeDecimals": 0,
+    "balance2FeeDecimals": 9,
+    "enabled": true,
+    "presetRpcURLs": ["https://portal-test.confluxrpc.com"]
   }
 ]

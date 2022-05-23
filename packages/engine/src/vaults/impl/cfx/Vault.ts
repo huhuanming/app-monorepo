@@ -6,13 +6,28 @@ import {
   UnsignedTx,
 } from '@onekeyfe/blockchain-libs/dist/types/provider';
 import { IJsonRpcRequest } from '@onekeyfe/cross-inpage-provider-types';
-import BigNumber from 'bignumber.js';
+import Big from 'big.js';
+import { Conflux as ConfluxJs } from 'js-conflux-sdk';
+import Transaction from 'js-conflux-sdk/src/Transaction';
+import { isNil } from 'lodash';
 
 import debugLogger from '@onekeyhq/shared/src/logger/debugLogger';
 
-import { NotImplemented, OneKeyInternalError } from '../../../errors';
-import { extractResponseError, fillUnsignedTx } from '../../../proxy';
+import {
+  NotImplemented,
+  OneKeyInternalError,
+  PendingQueueTooLong,
+} from '../../../errors';
+import {
+  extractResponseError,
+  fillUnsignedTx,
+  fillUnsignedTxObj,
+} from '../../../proxy';
 import { Account, DBAccount, DBVariantAccount } from '../../../types/account';
+import {
+  HistoryEntryStatus,
+  HistoryEntryTransaction,
+} from '../../../types/history';
 import {
   IApproveInfo,
   IEncodedTxAny,
@@ -24,11 +39,46 @@ import {
 } from '../../../types/vault';
 import { KeyringSoftwareBase } from '../../keyring/KeyringSoftwareBase';
 import { VaultBase } from '../../VaultBase';
+import { EVMTxDecoder } from '../evm/decoder/decoder';
 
 import { KeyringHardware } from './KeyringHardware';
 import { KeyringHd } from './KeyringHd';
 import { KeyringImported } from './KeyringImported';
 import { KeyringWatching } from './KeyringWatching';
+
+// fields in https://docs.confluxnetwork.org/js-conflux-sdk/docs/how_to_send_tx#send-transaction-complete
+export type IEncodedTxCfx = {
+  from: string;
+  to: string;
+  value: string;
+  data: string;
+  gas?: string;
+  // gasLimit is not a CFX transaction field.
+  gasLimit?: string;
+  gasPrice?: string;
+  maxFeePerGas?: string;
+  maxPriorityFeePerGas?: string;
+  nonce?: number;
+};
+
+export enum IDecodedTxCfxType {
+  NativeTransfer = 'NativeTransfer',
+  TokenTransfer = 'TokenTransfer',
+  TokenApprove = 'TokenApprove',
+  Swap = 'Swap',
+  NftTransfer = 'NftTransfer',
+  Transaction = 'Transaction',
+  ContractDeploy = 'ContractDeploy',
+}
+
+function decodeUnsignedTxFeeData(unsignedTx: UnsignedTx) {
+  return {
+    feeLimit: unsignedTx.feeLimit?.toFixed(),
+    feePricePerUnit: unsignedTx.feePricePerUnit?.toFixed(),
+  };
+}
+
+const PENDING_QUEUE_MAX_LENGTH = 10;
 
 // TODO extends evm/Vault
 export default class Vault extends VaultBase {
@@ -42,15 +92,99 @@ export default class Vault extends VaultBase {
     encodedTx: any;
     feeInfoValue: IFeeInfoUnit;
   }): Promise<any> {
-    throw new Error('Method not implemented.');
+    return Promise.resolve(params.encodedTx);
   }
 
   decodeTx(encodedTx: IEncodedTxAny, payload?: any): Promise<any> {
-    throw new NotImplemented();
+    console.log(encodedTx, payload);
+    console.log(Transaction);
+    const transactionInfo = Transaction.decodeRaw(encodedTx);
+    return Promise.resolve({
+      ...transactionInfo,
+      origin: ' ',
+      fromAddress: transactionInfo.from,
+      toAddress: transactionInfo.to,
+      network: '123123',
+    });
   }
 
-  buildEncodedTxFromTransfer(transferInfo: ITransferInfo): Promise<any> {
-    throw new Error('Method not implemented.');
+  async buildEncodedTxFromTransfer(transferInfo: ITransferInfo): Promise<any> {
+    const dbAccount = (await this.getDbAccount()) as DBVariantAccount;
+    const actions = [];
+
+    // token transfer
+    if (transferInfo.token) {
+      const token = await this.engine.getOrAddToken(
+        this.networkId,
+        transferInfo.token ?? '',
+        true,
+      );
+      if (token) {
+        // const hasStorageBalance = await this.isStorageBalanceAvailable({
+        //   address: transferInfo.to,
+        //   tokenAddress: transferInfo.token,
+        // });
+        // if (!hasStorageBalance) {
+        //   actions.push(
+        //     await this._buildStorageDepositAction({
+        //       // amount: new BN(FT_MINIMUM_STORAGE_BALANCE ?? '0'), // TODO small storage deposit
+        //       amount: new BN(FT_MINIMUM_STORAGE_BALANCE_LARGE ?? '0'),
+        //       address: transferInfo.to,
+        //     }),
+        //   );
+        // }
+        // // token transfer
+        // actions.push(
+        //   await this._buildTokenTransferAction({
+        //     transferInfo,
+        //     token,
+        //   }),
+        // );
+      }
+    } else {
+      // native token transfer
+      // actions.push(
+      //   await this._buildNativeTokenTransferAction({
+      //     amount: transferInfo.amount,
+      //   }),
+      // );
+    }
+    // const pubKey = await this._getPublicKey({ prefix: false });
+    // const publicKey = nearApiJs.utils.key_pair.PublicKey.from(pubKey);
+    // // TODO Mock value here, update nonce and blockHash in buildUnsignedTxFromEncodedTx later
+    // const nonce = 0; // 65899896000001
+    // const blockHash = '91737S76o1EfWfjxUQ4k3dyD3qmxDQ7hqgKUKxgxsSUW';
+    // const tx = nearApiJs.transactions.createTransaction(
+    //   // 'c3be856133196da252d0f1083614cdc87a85c8aa8abeaf87daff1520355eec51',
+    //   transferInfo.from,
+    //   publicKey,
+    //   transferInfo.token || transferInfo.to,
+    //   nonce,
+    //   actions,
+    //   baseDecode(blockHash),
+    // );
+    // const txStr = serializeTransaction(tx);
+    console.log(transferInfo);
+    const conflux = new ConfluxJs({ 
+      url: 'https://portal-test.confluxrpc.com',
+      networkId: 1,
+    });
+    const transaction = new Transaction({
+      to: transferInfo.to, // receiver address
+      nonce: await conflux.getNextNonce(dbAccount.addresses[this.networkId]), // sender next nonce
+      value: transferInfo.amount,
+      gas: 21000,
+      gasPrice: await conflux.getGasPrice(),
+      epochHeight: await conflux.getEpochNumber(),
+      storageLimit: 0,
+      chainId: 1, // endpoint status.chainId
+      data: '0x',
+    });
+    const PRIVATE_KEY =
+      '0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'; // sender private key
+    transaction.sign(PRIVATE_KEY, 1); // sender privateKey
+    console.log(transaction.serialize());
+    return transaction.serialize();
   }
 
   buildEncodedTxFromApprove(approveInfo: IApproveInfo): Promise<any> {
@@ -64,12 +198,73 @@ export default class Vault extends VaultBase {
     throw new Error('Method not implemented.');
   }
 
-  buildUnsignedTxFromEncodedTx(encodedTx: any): Promise<UnsignedTx> {
-    throw new Error('Method not implemented.');
+  async buildUnsignedTxFromEncodedTx(
+    encodedTx: IEncodedTxCfx,
+  ): Promise<UnsignedTx> {
+    // const network = await this.getNetwork();
+    // const dbAccount = await this.getDbAccount();
+    debugLogger.sendTx(
+      'buildUnsignedTxFromEncodedTx >>>> buildUnsignedTx',
+      encodedTx,
+      Transaction.decodeRaw(encodedTx),
+    );
+    console.log(encodedTx, Transaction.decodeRaw(encodedTx));
+    return Promise.resolve(encodedTx);
   }
 
-  fetchFeeInfo(encodedTx: any): Promise<IFeeInfo> {
-    throw new Error('Method not implemented.');
+  private async getNextNonce(
+    networkId: string,
+    dbAccount: DBAccount,
+  ): Promise<number> {
+    const onChainNonce =
+      (
+        await this.engine.providerManager.getAddresses(networkId, [
+          dbAccount.address,
+        ])
+      )[0]?.nonce ?? 0;
+
+    // TODO: Although 100 history items should be enough to cover all the
+    // pending transactions, we need to find a more reliable way.
+    const historyItems = await this.engine.getHistory(
+      networkId,
+      dbAccount.id,
+      undefined,
+      false,
+    );
+    const nextNonce = Math.max(
+      ...(await Promise.all(
+        historyItems
+          .filter((entry) => entry.status === HistoryEntryStatus.PENDING)
+          .map((historyItem) =>
+            EVMTxDecoder.getDecoder(this.engine)
+              .decode((historyItem as HistoryEntryTransaction).rawTx)
+              .then(({ nonce }) => (nonce ?? 0) + 1),
+          ),
+      )),
+      onChainNonce,
+    );
+
+    if (nextNonce - onChainNonce >= PENDING_QUEUE_MAX_LENGTH) {
+      throw new PendingQueueTooLong(PENDING_QUEUE_MAX_LENGTH);
+    }
+
+    return nextNonce;
+  }
+
+  async fetchFeeInfo(encodedTx: any): Promise<IFeeInfo> {
+    const network = await this.getNetwork();
+    const limit = '0';
+    const price = '10';
+    return {
+      editable: false,
+      nativeSymbol: network.symbol,
+      nativeDecimals: network.decimals,
+      symbol: network.feeSymbol,
+      decimals: network.feeDecimals,
+      limit,
+      prices: [price],
+      tx: null, // Must be null if network not support feeInTx
+    };
   }
 
   keyringMap = {
@@ -120,7 +315,39 @@ export default class Vault extends VaultBase {
       networkId,
       fillUnsignedTx(network, dbAccount, to, valueBN, token, extraCombined),
     );
+    console.log(unsignedTx, options);
     return this.signAndSendTransaction(unsignedTx, options);
+  }
+
+  async signAndSendTransaction(unsignedTx, options): Promise<string> {
+    const dbAccount = await this.getDbAccount();
+    const { password } = options;
+    console.log(unsignedTx, options);
+    const conflux = new ConfluxJs({
+      url: 'https://portal-test.confluxrpc.com',
+      networkId: 1,
+    });
+    const transactionInfo = Transaction.decodeRaw(unsignedTx);
+    const transaction = new Transaction({
+      ...transactionInfo,
+    });
+    const keyring = this.keyring as KeyringSoftwareBase;
+    if (typeof password === 'undefined') {
+      throw new OneKeyInternalError('password required');
+    }
+
+    const selectedAddress = dbAccount.addresses[this.networkId];
+    console.log(keyring)
+    const { [selectedAddress]: signer } = await keyring.getSigners(password, [
+      selectedAddress,
+    ]);
+    console.log(signer);
+    const privateKey = await this.getExportedCredential(options.password);
+    transaction.sign(privateKey, 1);
+    const transactionHash = await conflux.sendRawTransaction(
+      transaction.serialize(),
+    );
+    return Promise.resolve(transactionHash);
   }
 
   async updateEncodedTx(

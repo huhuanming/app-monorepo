@@ -1092,6 +1092,8 @@ class Engine {
       accountId,
       networkId,
     });
+    console.log(accountId, networkId);
+    console.log(vault);
     const unsignedTx = await vault.buildUnsignedTxFromEncodedTx(encodedTx);
 
     return vault.signAndSendTransaction(unsignedTx, {

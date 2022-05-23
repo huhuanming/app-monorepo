@@ -212,45 +212,6 @@ export default class Vault extends VaultBase {
     return Promise.resolve(encodedTx);
   }
 
-  private async getNextNonce(
-    networkId: string,
-    dbAccount: DBAccount,
-  ): Promise<number> {
-    const onChainNonce =
-      (
-        await this.engine.providerManager.getAddresses(networkId, [
-          dbAccount.address,
-        ])
-      )[0]?.nonce ?? 0;
-
-    // TODO: Although 100 history items should be enough to cover all the
-    // pending transactions, we need to find a more reliable way.
-    const historyItems = await this.engine.getHistory(
-      networkId,
-      dbAccount.id,
-      undefined,
-      false,
-    );
-    const nextNonce = Math.max(
-      ...(await Promise.all(
-        historyItems
-          .filter((entry) => entry.status === HistoryEntryStatus.PENDING)
-          .map((historyItem) =>
-            EVMTxDecoder.getDecoder(this.engine)
-              .decode((historyItem as HistoryEntryTransaction).rawTx)
-              .then(({ nonce }) => (nonce ?? 0) + 1),
-          ),
-      )),
-      onChainNonce,
-    );
-
-    if (nextNonce - onChainNonce >= PENDING_QUEUE_MAX_LENGTH) {
-      throw new PendingQueueTooLong(PENDING_QUEUE_MAX_LENGTH);
-    }
-
-    return nextNonce;
-  }
-
   async fetchFeeInfo(encodedTx: any): Promise<IFeeInfo> {
     const network = await this.getNetwork();
     const limit = '0';

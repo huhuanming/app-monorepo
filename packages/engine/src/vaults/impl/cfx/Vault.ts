@@ -6,8 +6,8 @@ import {
   UnsignedTx,
 } from '@onekeyfe/blockchain-libs/dist/types/provider';
 import { IJsonRpcRequest } from '@onekeyfe/cross-inpage-provider-types';
-import Big from 'big.js';
-import { Conflux as ConfluxJs } from 'js-conflux-sdk';
+import BigNumber from 'bignumber.js';
+import { Conflux as ConfluxJs, Drip, JSBI } from 'js-conflux-sdk';
 import Transaction from 'js-conflux-sdk/src/Transaction';
 import { isNil } from 'lodash';
 
@@ -39,12 +39,17 @@ import {
 } from '../../../types/vault';
 import { KeyringSoftwareBase } from '../../keyring/KeyringSoftwareBase';
 import { VaultBase } from '../../VaultBase';
-import { EVMTxDecoder } from '../evm/decoder/decoder';
 
 import { KeyringHardware } from './KeyringHardware';
 import { KeyringHd } from './KeyringHd';
 import { KeyringImported } from './KeyringImported';
 import { KeyringWatching } from './KeyringWatching';
+
+import type {
+  Address,
+  Transaction as TransactionClassType,
+} from 'js-conflux-sdk';
+import { TransactionOptions } from '@onekeyfe/js-sdk';
 
 // fields in https://docs.confluxnetwork.org/js-conflux-sdk/docs/how_to_send_tx#send-transaction-complete
 export type IEncodedTxCfx = {
@@ -71,17 +76,35 @@ export enum IDecodedTxCfxType {
   ContractDeploy = 'ContractDeploy',
 }
 
-function decodeUnsignedTxFeeData(unsignedTx: UnsignedTx) {
-  return {
-    feeLimit: unsignedTx.feeLimit?.toFixed(),
-    feePricePerUnit: unsignedTx.feePricePerUnit?.toFixed(),
-  };
+export interface IConfluxTransactionOption {
+  from: Address;
+  nonce?: JSBI;
+  gasPrice?: JSBI;
+  gas?: JSBI;
+  to?: Address | null;
+  value?: JSBI;
+  storageLimit?: JSBI;
+  epochHeight?: number;
+  chainId?: number;
+  data?: Buffer | string;
+  r?: Buffer | string;
+  s?: Buffer | string;
+  v?: number;
 }
 
-const PENDING_QUEUE_MAX_LENGTH = 10;
+const { decodeRaw } = Transaction as {
+  decodeRaw: (hexString: string) => IConfluxTransactionOption;
+};
 
-// TODO extends evm/Vault
+const ConfluxTransaction: TransactionClassType = Transaction;
+
 export default class Vault extends VaultBase {
+  private conflux = new ConfluxJs({
+    // should replace to dynamic address
+    url: 'https://portal-test.confluxrpc.com',
+    networkId: 1,
+  });
+
   private async getJsonRPCClient(): Promise<Conflux> {
     return (await this.engine.providerManager.getClient(
       this.networkId,
@@ -95,95 +118,45 @@ export default class Vault extends VaultBase {
     return Promise.resolve(params.encodedTx);
   }
 
-  decodeTx(encodedTx: IEncodedTxAny, payload?: any): Promise<any> {
-    console.log(encodedTx, payload);
-    console.log(Transaction);
-    const transactionInfo = Transaction.decodeRaw(encodedTx);
+  async decodeTx(encodedTx: IEncodedTxAny, payload?: any): Promise<any> {
+    const transactionInfo = decodeRaw(encodedTx);
     return Promise.resolve({
       ...transactionInfo,
-      origin: ' ',
       fromAddress: transactionInfo.from,
       toAddress: transactionInfo.to,
-      network: '123123',
+      network: await this.getNetwork(),
     });
   }
 
-  async buildEncodedTxFromTransfer(transferInfo: ITransferInfo): Promise<any> {
-    const dbAccount = (await this.getDbAccount()) as DBVariantAccount;
-    const actions = [];
+  async getGasLimit(estimateTractionOptions: TransactionOptions) {
+    const gasAndCollateral = await this.conflux.estimateGasAndCollateral(
+      new ConfluxTransaction(estimateTractionOptions),
+    );
+    return gasAndCollateral.gasLimit[0];
+  }
 
-    // token transfer
-    if (transferInfo.token) {
-      const token = await this.engine.getOrAddToken(
-        this.networkId,
-        transferInfo.token ?? '',
-        true,
-      );
-      if (token) {
-        // const hasStorageBalance = await this.isStorageBalanceAvailable({
-        //   address: transferInfo.to,
-        //   tokenAddress: transferInfo.token,
-        // });
-        // if (!hasStorageBalance) {
-        //   actions.push(
-        //     await this._buildStorageDepositAction({
-        //       // amount: new BN(FT_MINIMUM_STORAGE_BALANCE ?? '0'), // TODO small storage deposit
-        //       amount: new BN(FT_MINIMUM_STORAGE_BALANCE_LARGE ?? '0'),
-        //       address: transferInfo.to,
-        //     }),
-        //   );
-        // }
-        // // token transfer
-        // actions.push(
-        //   await this._buildTokenTransferAction({
-        //     transferInfo,
-        //     token,
-        //   }),
-        // );
-      }
-    } else {
-      // native token transfer
-      // actions.push(
-      //   await this._buildNativeTokenTransferAction({
-      //     amount: transferInfo.amount,
-      //   }),
-      // );
-    }
-    // const pubKey = await this._getPublicKey({ prefix: false });
-    // const publicKey = nearApiJs.utils.key_pair.PublicKey.from(pubKey);
-    // // TODO Mock value here, update nonce and blockHash in buildUnsignedTxFromEncodedTx later
-    // const nonce = 0; // 65899896000001
-    // const blockHash = '91737S76o1EfWfjxUQ4k3dyD3qmxDQ7hqgKUKxgxsSUW';
-    // const tx = nearApiJs.transactions.createTransaction(
-    //   // 'c3be856133196da252d0f1083614cdc87a85c8aa8abeaf87daff1520355eec51',
-    //   transferInfo.from,
-    //   publicKey,
-    //   transferInfo.token || transferInfo.to,
-    //   nonce,
-    //   actions,
-    //   baseDecode(blockHash),
-    // );
-    // const txStr = serializeTransaction(tx);
-    console.log(transferInfo);
-    const conflux = new ConfluxJs({ 
-      url: 'https://portal-test.confluxrpc.com',
-      networkId: 1,
-    });
-    const transaction = new Transaction({
+  async buildEncodedTxFromTransfer(
+    transferInfo: ITransferInfo,
+  ): Promise<string> {
+    const dbAccount = (await this.getDbAccount()) as DBVariantAccount;
+    const conflux = this.conflux
+    const transaction = new ConfluxTransaction({
       to: transferInfo.to, // receiver address
-      nonce: await conflux.getNextNonce(dbAccount.addresses[this.networkId]), // sender next nonce
+      nonce: await conflux.getNextNonce(dbAccount.addresses[this.networkId]),
       value: transferInfo.amount,
+      // 临时写死 gas
       gas: 21000,
-      gasPrice: await conflux.getGasPrice(),
       epochHeight: await conflux.getEpochNumber(),
       storageLimit: 0,
-      chainId: 1, // endpoint status.chainId
+      chainId: 1,
       data: '0x',
+      gasPrice: 1000000000,
     });
+
+    // 没有 PRIVATE_KEY，conflux 的 transaction 不能执行 serialize，临时写死一个。
     const PRIVATE_KEY =
-      '0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'; // sender private key
-    transaction.sign(PRIVATE_KEY, 1); // sender privateKey
-    console.log(transaction.serialize());
+      '0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+    transaction.sign(PRIVATE_KEY, 1);
     return transaction.serialize();
   }
 
@@ -200,32 +173,31 @@ export default class Vault extends VaultBase {
 
   async buildUnsignedTxFromEncodedTx(
     encodedTx: IEncodedTxCfx,
-  ): Promise<UnsignedTx> {
+  ): Promise<string> {
     // const network = await this.getNetwork();
     // const dbAccount = await this.getDbAccount();
     debugLogger.sendTx(
       'buildUnsignedTxFromEncodedTx >>>> buildUnsignedTx',
       encodedTx,
-      Transaction.decodeRaw(encodedTx),
     );
-    console.log(encodedTx, Transaction.decodeRaw(encodedTx));
     return Promise.resolve(encodedTx);
   }
 
   async fetchFeeInfo(encodedTx: any): Promise<IFeeInfo> {
+    const feeInfo = decodeRaw(encodedTx);
     const network = await this.getNetwork();
-    const limit = '0';
-    const price = '10';
-    return {
+    // TODO: should replace by constant variable
+    const price: [number, boolean] = (await this.conflux.getGasPrice()) as any;
+    return Promise.resolve({
       editable: false,
       nativeSymbol: network.symbol,
       nativeDecimals: network.decimals,
       symbol: network.feeSymbol,
       decimals: network.feeDecimals,
-      limit,
-      prices: [price],
+      limit: '2100',
+      prices: [String(price[0] || 0)],
       tx: null, // Must be null if network not support feeInTx
-    };
+    });
   }
 
   keyringMap = {
@@ -276,33 +248,30 @@ export default class Vault extends VaultBase {
       networkId,
       fillUnsignedTx(network, dbAccount, to, valueBN, token, extraCombined),
     );
-    console.log(unsignedTx, options);
     return this.signAndSendTransaction(unsignedTx, options);
   }
 
-  async signAndSendTransaction(unsignedTx, options): Promise<string> {
+  async signAndSendTransaction(
+    unsignedTx: string,
+    options: { password: string },
+  ): Promise<string> {
     const dbAccount = await this.getDbAccount();
     const { password } = options;
-    console.log(unsignedTx, options);
-    const conflux = new ConfluxJs({
-      url: 'https://portal-test.confluxrpc.com',
-      networkId: 1,
-    });
-    const transactionInfo = Transaction.decodeRaw(unsignedTx);
-    const transaction = new Transaction({
+    const { conflux } = this;
+    const transactionInfo = decodeRaw(unsignedTx);
+
+    const transaction = new ConfluxTransaction({
       ...transactionInfo,
+      value: Drip.fromCFX(parseFloat(transactionInfo.value)),
     });
     const keyring = this.keyring as KeyringSoftwareBase;
     if (typeof password === 'undefined') {
       throw new OneKeyInternalError('password required');
     }
 
-    const selectedAddress = dbAccount.addresses[this.networkId];
-    console.log(keyring)
-    const { [selectedAddress]: signer } = await keyring.getSigners(password, [
-      selectedAddress,
-    ]);
-    console.log(signer);
+    const selectedAddress = (dbAccount as DBVariantAccount).addresses[
+      this.networkId
+    ];
     const privateKey = await this.getExportedCredential(options.password);
     transaction.sign(privateKey, 1);
     const transactionHash = await conflux.sendRawTransaction(

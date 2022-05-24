@@ -1,12 +1,11 @@
 import { batchGetPublicKeys } from '@onekeyfe/blockchain-libs/dist/secret';
+import { decrypt } from '@onekeyfe/blockchain-libs/dist/secret/encryptors/aes256';
 import {
   SignedTx,
   UnsignedTx,
 } from '@onekeyfe/blockchain-libs/dist/types/provider';
 import conflux, { Drip } from 'js-conflux-sdk';
 import Transaction from 'js-conflux-sdk/src/Transaction';
-
-import { decrypt } from '@onekeyfe/blockchain-libs/dist/secret/encryptors/aes256';
 
 import { COINTYPE_CFX as COIN_TYPE } from '../../../constants';
 import { ExportedSeedCredential } from '../../../dbs/base';
@@ -18,10 +17,6 @@ import {
   ISignCredentialOptions,
 } from '../../../types/vault';
 import { KeyringHdBase } from '../../keyring/KeyringHdBase';
-
-const { decodeRaw } = Transaction as {
-  decodeRaw: (hexString: string) => any;
-};
 
 const PATH_PREFIX = `m/44'/${COIN_TYPE}'/0'/0`;
 
@@ -105,12 +100,7 @@ export class KeyringHd extends KeyringHdBase {
   ): Promise<SignedTx> {
     const dbAccount = await this.getDbAccount();
     const { password } = options;
-    const transactionInfo = decodeRaw(unsignedTx);
-    const transaction = new Transaction({
-      ...transactionInfo,
-      value: Drip.fromCFX(parseFloat(transactionInfo.value)),
-    });
-    const { keyring } = this;
+    const transaction = new Transaction(unsignedTx);
     if (typeof password === 'undefined') {
       throw new OneKeyInternalError('password required');
     }
@@ -118,22 +108,9 @@ export class KeyringHd extends KeyringHdBase {
     const selectedAddress = (dbAccount as DBVariantAccount).addresses[
       this.networkId
     ];
-    const privateKey = await this.getExportedCredential(options.password);
+    const signers = await this.getSigners(password, [selectedAddress]);
+    const privateKey = await signers[selectedAddress].getPrvkey();
     transaction.sign(privateKey, 1);
-    return transaction.serialize()
-  }
-
-  async getExportedCredential(password: string): Promise<string> {
-    const dbAccount = await this.getDbAccount();
-    if (dbAccount.id.startsWith('hd-') || dbAccount.id.startsWith('imported')) {
-      const keyring = this as KeyringSoftwareBase;
-      const [encryptedPrivateKey] = Object.values(
-        await keyring.getPrivateKeys(password),
-      );
-      return `0x${decrypt(password, encryptedPrivateKey).toString('hex')}`;
-    }
-    throw new OneKeyInternalError(
-      'Only credential of HD or imported accounts can be exported',
-    );
+    return transaction.serialize();
   }
 }

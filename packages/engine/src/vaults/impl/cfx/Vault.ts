@@ -180,7 +180,11 @@ export default class Vault extends VaultBase {
       'buildUnsignedTxFromEncodedTx >>>> buildUnsignedTx',
       encodedTx,
     );
-    return Promise.resolve(encodedTx);
+    const transactionInfo = decodeRaw(encodedTx);
+    return Promise.resolve({
+      ...transactionInfo,
+      value: Drip.fromCFX(parseFloat(transactionInfo.value)),
+    });
   }
 
   async fetchFeeInfo(encodedTx: any): Promise<IFeeInfo> {

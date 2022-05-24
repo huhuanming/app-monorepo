@@ -257,29 +257,6 @@ export default class Vault extends VaultBase {
   ): Promise<string> {
     const signedTx = await this.signTransaction(unsignedTx, options);
     return await this.conflux.sendRawTransaction(signedTx);;
-    // const dbAccount = await this.getDbAccount();
-    // const { password } = options;
-    // const { conflux } = this;
-    // const transactionInfo = decodeRaw(unsignedTx);
-
-    // const transaction = new ConfluxTransaction({
-    //   ...transactionInfo,
-    //   value: Drip.fromCFX(parseFloat(transactionInfo.value)),
-    // });
-    // const keyring = this.keyring as KeyringSoftwareBase;
-    // if (typeof password === 'undefined') {
-    //   throw new OneKeyInternalError('password required');
-    // }
-
-    // const selectedAddress = (dbAccount as DBVariantAccount).addresses[
-    //   this.networkId
-    // ];
-    // const privateKey = await this.getExportedCredential(options.password);
-    // transaction.sign(privateKey, 1);
-    // const transactionHash = await conflux.sendRawTransaction(
-    //   transaction.serialize(),
-    // );
-    // return Promise.resolve(transactionHash);
   }
 
   async updateEncodedTx(

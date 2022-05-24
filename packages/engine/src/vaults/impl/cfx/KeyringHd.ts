@@ -1,11 +1,9 @@
 import { batchGetPublicKeys } from '@onekeyfe/blockchain-libs/dist/secret';
-import { decrypt } from '@onekeyfe/blockchain-libs/dist/secret/encryptors/aes256';
 import {
   SignedTx,
   UnsignedTx,
 } from '@onekeyfe/blockchain-libs/dist/types/provider';
-import conflux, { Drip } from 'js-conflux-sdk';
-import Transaction from 'js-conflux-sdk/src/Transaction';
+import { Transaction } from 'js-conflux-sdk';
 
 import { COINTYPE_CFX as COIN_TYPE } from '../../../constants';
 import { ExportedSeedCredential } from '../../../dbs/base';
@@ -95,12 +93,24 @@ export class KeyringHd extends KeyringHdBase {
   }
 
   async signTransaction(
-    unsignedTx: UnsignedTx,
+    // TODO: 需要重构数据结构，临时先 any 一下
+    // unsignedTx: UnsignedTx,
+    unsignedTx: { [key: string]: any },
     options: ISignCredentialOptions,
   ): Promise<SignedTx> {
     const dbAccount = await this.getDbAccount();
     const { password } = options;
-    const transaction = new Transaction(unsignedTx);
+    const transaction = new Transaction(
+      // TODO: 数据转换需要放在上一层 decode 中
+      Object.keys(unsignedTx).reduce(
+        (prev: { [key: string]: any }, key: string) => {
+          const value = unsignedTx[key];
+          prev[key] = typeof value === 'bigint' ? value.toString() : value;
+          return prev;
+        },
+        {},
+      ) as any,
+    );
     if (typeof password === 'undefined') {
       throw new OneKeyInternalError('password required');
     }
@@ -110,7 +120,11 @@ export class KeyringHd extends KeyringHdBase {
     ];
     const signers = await this.getSigners(password, [selectedAddress]);
     const privateKey = await signers[selectedAddress].getPrvkey();
-    transaction.sign(privateKey, 1);
-    return transaction.serialize();
+    // WARN: the type privateKey can be buffer, but it is string in index.d.ts now.
+    transaction.sign(privateKey as any, 1);
+    return {
+      txid: transaction.hash,
+      rawTx: transaction.serialize(),
+    };
   }
 }

@@ -3,9 +3,11 @@ import { Conflux } from '@onekeyfe/blockchain-libs/dist/provider/chains/cfx/conf
 import { decrypt } from '@onekeyfe/blockchain-libs/dist/secret/encryptors/aes256';
 import {
   PartialTokenInfo,
+  SignedTx,
   UnsignedTx,
 } from '@onekeyfe/blockchain-libs/dist/types/provider';
 import { IJsonRpcRequest } from '@onekeyfe/cross-inpage-provider-types';
+import { TransactionOptions } from '@onekeyfe/js-sdk';
 import BigNumber from 'bignumber.js';
 import { Conflux as ConfluxJs, Drip, JSBI } from 'js-conflux-sdk';
 import Transaction from 'js-conflux-sdk/src/Transaction';
@@ -49,7 +51,6 @@ import type {
   Address,
   Transaction as TransactionClassType,
 } from 'js-conflux-sdk';
-import { TransactionOptions } from '@onekeyfe/js-sdk';
 
 // fields in https://docs.confluxnetwork.org/js-conflux-sdk/docs/how_to_send_tx#send-transaction-complete
 export type IEncodedTxCfx = {
@@ -139,7 +140,7 @@ export default class Vault extends VaultBase {
     transferInfo: ITransferInfo,
   ): Promise<string> {
     const dbAccount = (await this.getDbAccount()) as DBVariantAccount;
-    const conflux = this.conflux
+    const { conflux } = this;
     const transaction = new ConfluxTransaction({
       to: transferInfo.to, // receiver address
       nonce: await conflux.getNextNonce(dbAccount.addresses[this.networkId]),
@@ -256,11 +257,16 @@ export default class Vault extends VaultBase {
   }
 
   async signAndSendTransaction(
-    unsignedTx: string,
-    options: { password: string },
-  ): Promise<string> {
+    unsignedTx: UnsignedTx,
+    options: ISignCredentialOptions,
+  ): Promise<SignedTx> {
     const signedTx = await this.signTransaction(unsignedTx, options);
-    return await this.conflux.sendRawTransaction(signedTx);;
+    debugger;
+    const hash = await this.conflux.sendRawTransaction(signedTx.rawTx);
+    return {
+      txid: hash,
+      rawTx: signedTx.rawTx,
+    };
   }
 
   async updateEncodedTx(

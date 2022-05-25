@@ -261,7 +261,6 @@ export default class Vault extends VaultBase {
     options: ISignCredentialOptions,
   ): Promise<SignedTx> {
     const signedTx = await this.signTransaction(unsignedTx, options);
-    debugger;
     const hash = await this.conflux.sendRawTransaction(signedTx.rawTx);
     return {
       txid: hash,

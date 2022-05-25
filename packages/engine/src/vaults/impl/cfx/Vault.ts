@@ -1,4 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unused-vars, @typescript-eslint/require-await */
+import { toBigIntHex } from '@onekeyfe/blockchain-libs/dist/basic/bignumber-plus';
 import { Conflux } from '@onekeyfe/blockchain-libs/dist/provider/chains/cfx/conflux';
 import { decrypt } from '@onekeyfe/blockchain-libs/dist/secret/encryptors/aes256';
 import {
@@ -46,25 +47,28 @@ import { KeyringHd } from './KeyringHd';
 import { KeyringImported } from './KeyringImported';
 import { KeyringWatching } from './KeyringWatching';
 
+import type { IEncodedTxEvm } from '../evm/Vault';
 import type {
   Address,
   Transaction as TransactionClassType,
 } from 'js-conflux-sdk';
 
 // fields in https://docs.confluxnetwork.org/js-conflux-sdk/docs/how_to_send_tx#send-transaction-complete
-export type IEncodedTxCfx = {
-  from: string;
-  to: string;
-  value: string;
-  data: string;
-  gas?: string;
-  // gasLimit is not a CFX transaction field.
-  gasLimit?: string;
-  gasPrice?: string;
-  maxFeePerGas?: string;
-  maxPriorityFeePerGas?: string;
-  nonce?: number;
-};
+// export type IEncodedTxCfx = {
+//   from: string;
+//   to: string;
+//   value: string;
+//   data: string;
+//   gas?: string;
+//   // gasLimit is not a CFX transaction field.
+//   gasLimit?: string;
+//   gasPrice?: string;
+//   maxFeePerGas?: string;
+//   maxPriorityFeePerGas?: string;
+//   nonce?: number;
+// };
+
+export type IEncodedTxCfx = IEncodedTxEvm;
 
 export enum IDecodedTxCfxType {
   NativeTransfer = 'NativeTransfer',
@@ -91,8 +95,6 @@ export interface IConfluxTransactionOption {
   v?: number;
 }
 
-const { decodeRaw } = Transaction;
-
 export default class Vault extends VaultBase {
   private conflux = new ConfluxJs({
     // should replace to dynamic address
@@ -107,23 +109,33 @@ export default class Vault extends VaultBase {
   }
 
   attachFeeInfoToEncodedTx(params: {
-    encodedTx: any;
+    encodedTx: IEncodedTxAny;
     feeInfoValue: IFeeInfoUnit;
   }): Promise<any> {
+    console.log('attachFeeInfoToEncodedTx');
     return Promise.resolve(params.encodedTx);
   }
 
   async decodeTx(encodedTx: IEncodedTxAny, payload?: any): Promise<any> {
-    const transactionInfo = decodeRaw(encodedTx);
+    console.log('decodeTx', encodedTx, payload);
+    console.log({
+      ...encodedTx,
+      ...payload,
+      fromAddress: encodedTx.from,
+      toAddress: encodedTx.to,
+      network: await this.getNetwork(),
+    });
     return Promise.resolve({
-      ...transactionInfo,
-      fromAddress: transactionInfo.from,
-      toAddress: transactionInfo.to,
+      ...encodedTx,
+      ...payload,
+      fromAddress: encodedTx.from,
+      toAddress: encodedTx.to,
       network: await this.getNetwork(),
     });
   }
 
   async getGasLimit(estimateTractionOptions: TransactionOptions) {
+    console.log('getGasLimit');
     const gasAndCollateral = await this.conflux.estimateGasAndCollateral(
       new Transaction(estimateTractionOptions),
     );
@@ -132,27 +144,37 @@ export default class Vault extends VaultBase {
 
   async buildEncodedTxFromTransfer(
     transferInfo: ITransferInfo,
-  ): Promise<string> {
-    const dbAccount = (await this.getDbAccount()) as DBVariantAccount;
-    const { conflux } = this;
-    const transaction = new Transaction({
-      to: transferInfo.to, // receiver address
-      nonce: await conflux.getNextNonce(dbAccount.addresses[this.networkId]),
-      value: transferInfo.amount,
-      // 临时写死 gas
-      gas: 21000,
-      epochHeight: await conflux.getEpochNumber(),
-      storageLimit: 0,
-      chainId: 1,
-      data: '0x',
-      gasPrice: 1000000000,
-    });
+  ): Promise<IEncodedTxCfx> {
+    console.log('buildEncodedTxFromTransfer');
+    // const dbAccount = (await this.getDbAccount()) as DBVariantAccount;
+    // const { conflux } = this;
+    // const transaction = new Transaction({
+    //   to: transferInfo.to, // receiver address
+    //   nonce: await conflux.getNextNonce(dbAccount.addresses[this.networkId]),
+    //   value: transferInfo.amount,
+    //   // 临时写死 gas
+    //   gas: 21000,
+    //   epochHeight: await conflux.getEpochNumber(),
+    //   storageLimit: 0,
+    //   chainId: 1,
+    //   data: '0x',
+    //   gasPrice: 1000000000,
+    // });
 
-    // 没有 PRIVATE_KEY，conflux 的 transaction 不能执行 serialize，临时写死一个。
-    const PRIVATE_KEY =
-      '0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
-    transaction.sign(PRIVATE_KEY, 1);
-    return transaction.serialize();
+    // // 没有 PRIVATE_KEY，conflux 的 transaction 不能执行 serialize，临时写死一个。
+    // const PRIVATE_KEY =
+    //   '0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+    // transaction.sign(PRIVATE_KEY, 1);
+    const { amount } = transferInfo;
+    const network = await this.getNetwork();
+    const amountBN = new BigNumber(amount);
+    const amountHex = toBigIntHex(amountBN.shiftedBy(network.decimals));
+    return {
+      from: transferInfo.from,
+      to: transferInfo.to,
+      value: amountHex,
+      data: '0x',
+    };
   }
 
   buildEncodedTxFromApprove(approveInfo: IApproveInfo): Promise<any> {
@@ -168,33 +190,66 @@ export default class Vault extends VaultBase {
 
   async buildUnsignedTxFromEncodedTx(
     encodedTx: IEncodedTxCfx,
-  ): Promise<string> {
+  ): Promise<UnsignedTx> {
+    console.log('buildUnsignedTxFromEncodedTx', encodedTx);
     // const network = await this.getNetwork();
-    // const dbAccount = await this.getDbAccount();
+    const dbAccount = (await this.getDbAccount()) as DBVariantAccount;
+    const {
+      to,
+      value,
+      data,
+      gas,
+      gasLimit,
+      gasPrice,
+      maxFeePerGas,
+      maxPriorityFeePerGas,
+      nonce,
+      ...others
+    } = encodedTx;
     debugLogger.sendTx(
       'buildUnsignedTxFromEncodedTx >>>> buildUnsignedTx',
       encodedTx,
     );
-    const transactionInfo = decodeRaw(encodedTx);
+    const _nonce =
+      typeof nonce !== 'undefined'
+        ? nonce
+        : await this.conflux.getNextNonce(dbAccount.addresses[this.networkId]);
     return Promise.resolve({
-      ...transactionInfo,
-      value: Drip.fromCFX(parseFloat(transactionInfo.value)),
+      inputs: [],
+      outputs: [],
+      // type?: string;
+      nonce: _nonce,
+      // feeLimit?: BigNumber;
+      // feePricePerUnit?: BigNumber;
+      payload: {
+        to: encodedTx.to, // receiver address
+        nonce: _nonce,
+        value: encodedTx.amount,
+        // 临时写死 gas
+        gas: 21000,
+        epochHeight: await this.conflux.getEpochNumber(),
+        storageLimit: 0,
+        chainId: 1,
+        data: '0x',
+        gasPrice: 1000000000,
+        value: Drip.fromCFX(parseFloat(encodedTx.value)),
+      },
     });
   }
 
   async fetchFeeInfo(encodedTx: any): Promise<IFeeInfo> {
-    const feeInfo = decodeRaw(encodedTx);
+    console.log('fetchFeeInfo', encodedTx);
     const network = await this.getNetwork();
     // TODO: should replace by constant variable
     const price: [number, boolean] = (await this.conflux.getGasPrice()) as any;
     return Promise.resolve({
-      editable: false,
+      editable: true,
       nativeSymbol: network.symbol,
       nativeDecimals: network.decimals,
       symbol: network.feeSymbol,
       decimals: network.feeDecimals,
       limit: '2100',
-      prices: [String(price[0] || 0)],
+      prices: [price.toString()],
       tx: null, // Must be null if network not support feeInTx
     });
   }

@@ -93,18 +93,16 @@ export class KeyringHd extends KeyringHdBase {
   }
 
   async signTransaction(
-    // TODO: 需要重构数据结构，临时先 any 一下
-    // unsignedTx: UnsignedTx,
-    unsignedTx: { [key: string]: any },
+    unsignedTx: UnsignedTx,
     options: ISignCredentialOptions,
   ): Promise<SignedTx> {
     const dbAccount = await this.getDbAccount();
     const { password } = options;
     const transaction = new Transaction(
       // TODO: 数据转换需要放在上一层 decode 中
-      Object.keys(unsignedTx).reduce(
+      Object.keys(unsignedTx.payload).reduce(
         (prev: { [key: string]: any }, key: string) => {
-          const value = unsignedTx[key];
+          const value = unsignedTx.payload[key];
           prev[key] = typeof value === 'bigint' ? value.toString() : value;
           return prev;
         },

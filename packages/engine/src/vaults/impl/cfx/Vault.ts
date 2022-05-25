@@ -146,25 +146,6 @@ export default class Vault extends VaultBase {
     transferInfo: ITransferInfo,
   ): Promise<IEncodedTxCfx> {
     console.log('buildEncodedTxFromTransfer');
-    // const dbAccount = (await this.getDbAccount()) as DBVariantAccount;
-    // const { conflux } = this;
-    // const transaction = new Transaction({
-    //   to: transferInfo.to, // receiver address
-    //   nonce: await conflux.getNextNonce(dbAccount.addresses[this.networkId]),
-    //   value: transferInfo.amount,
-    //   // 临时写死 gas
-    //   gas: 21000,
-    //   epochHeight: await conflux.getEpochNumber(),
-    //   storageLimit: 0,
-    //   chainId: 1,
-    //   data: '0x',
-    //   gasPrice: 1000000000,
-    // });
-
-    // // 没有 PRIVATE_KEY，conflux 的 transaction 不能执行 serialize，临时写死一个。
-    // const PRIVATE_KEY =
-    //   '0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
-    // transaction.sign(PRIVATE_KEY, 1);
     const { amount } = transferInfo;
     const network = await this.getNetwork();
     const amountBN = new BigNumber(amount);

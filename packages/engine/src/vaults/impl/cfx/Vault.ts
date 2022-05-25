@@ -9,8 +9,7 @@ import {
 import { IJsonRpcRequest } from '@onekeyfe/cross-inpage-provider-types';
 import { TransactionOptions } from '@onekeyfe/js-sdk';
 import BigNumber from 'bignumber.js';
-import { Conflux as ConfluxJs, Drip, JSBI } from 'js-conflux-sdk';
-import Transaction from 'js-conflux-sdk/src/Transaction';
+import { Conflux as ConfluxJs, Drip, JSBI, Transaction } from 'js-conflux-sdk';
 import { isNil } from 'lodash';
 
 import debugLogger from '@onekeyhq/shared/src/logger/debugLogger';
@@ -73,7 +72,6 @@ export enum IDecodedTxCfxType {
   TokenApprove = 'TokenApprove',
   Swap = 'Swap',
   NftTransfer = 'NftTransfer',
-  Transaction = 'Transaction',
   ContractDeploy = 'ContractDeploy',
 }
 
@@ -93,11 +91,7 @@ export interface IConfluxTransactionOption {
   v?: number;
 }
 
-const { decodeRaw } = Transaction as {
-  decodeRaw: (hexString: string) => IConfluxTransactionOption;
-};
-
-const ConfluxTransaction: TransactionClassType = Transaction;
+const { decodeRaw } = Transaction;
 
 export default class Vault extends VaultBase {
   private conflux = new ConfluxJs({
@@ -131,7 +125,7 @@ export default class Vault extends VaultBase {
 
   async getGasLimit(estimateTractionOptions: TransactionOptions) {
     const gasAndCollateral = await this.conflux.estimateGasAndCollateral(
-      new ConfluxTransaction(estimateTractionOptions),
+      new Transaction(estimateTractionOptions),
     );
     return gasAndCollateral.gasLimit[0];
   }
@@ -141,7 +135,7 @@ export default class Vault extends VaultBase {
   ): Promise<string> {
     const dbAccount = (await this.getDbAccount()) as DBVariantAccount;
     const { conflux } = this;
-    const transaction = new ConfluxTransaction({
+    const transaction = new Transaction({
       to: transferInfo.to, // receiver address
       nonce: await conflux.getNextNonce(dbAccount.addresses[this.networkId]),
       value: transferInfo.amount,
